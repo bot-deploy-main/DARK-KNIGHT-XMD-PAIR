@@ -8,8 +8,8 @@
       "stop": "pm2 stop DARK-KNIGHT",
      "restart": "pm2 restart DARK-KNIGHT"
     },
-  "dependencies": {
-   "@whiskeysockets/baileys": "npm:baileys-mod",          
+    "dependencies": {
+    "@whiskeysockets/baileys": "github:XdKing2/Malvin-Baileys",          
     "@adiwajshing/keyed-db": "^0.2.4",
     "awesome-phonenumber": "^2.64.0",
     "pino": "^8.1.0",
