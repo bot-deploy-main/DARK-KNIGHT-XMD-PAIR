@@ -2,7 +2,6 @@ const { makeid } = require('./gen-id');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const router = express.Router();
 const pino = require("pino");
 const { 
     default: makeWASocket, 
@@ -12,7 +11,10 @@ const {
     makeCacheableSignalKeyStore 
 } = require('@whiskeysockets/baileys');
 
-// Helper to handle temp files in Vercel (/tmp is the only writable directory)
+const router = express.Router();
+const { upload } = require('./mega');
+
+// Vercel වල ලියන්න අවසර තියෙන්නේ /tmp ෆෝල්ඩරයට පමණි
 const TEMP_DIR = '/tmp/';
 
 function removeFile(FilePath) {
@@ -27,9 +29,8 @@ router.get('/', async (req, res) => {
 
     if (!num) return res.status(400).send({ error: "Number is required" });
 
-    // Vercel function එක ඇතුළත ක්‍රියාත්මක වන ප්‍රධාන function එක
-    async function DARK_KNIGHT_XMD_PAIR_CODE() {
-        // Vercel වල ලියන්න පුළුවන් /tmp/ ෆෝල්ඩරයට විතරයි
+    // 1. වහාම Pairing Code එක ලබාගැනීමේ Function එක
+    async function startPairing() {
         const authPath = path.join(TEMP_DIR, id);
         const { state, saveCreds } = await useMultiFileAuthState(authPath);
 
@@ -41,7 +42,8 @@ router.get('/', async (req, res) => {
                 },
                 printQRInTerminal: false,
                 logger: pino({ level: "fatal" }),
-                browser: Browsers.macOS("Safari")
+                browser: Browsers.macOS("Safari"),
+                syncFullHistory: false
             });
 
             if (!sock.authState.creds.registered) {
@@ -49,6 +51,7 @@ router.get('/', async (req, res) => {
                 num = num.replace(/[^0-9]/g, '');
                 const code = await sock.requestPairingCode(num);
                 
+                // Timeout එක වැලැක්වීමට Code එක ලැබුණු සැනින් Response එක යවන්න
                 if (!res.headersSent) {
                     res.send({ code });
                 }
@@ -60,53 +63,50 @@ router.get('/', async (req, res) => {
                 const { connection, lastDisconnect } = s;
 
                 if (connection === "open") {
-                    await delay(5000);
-                    const credsPath = path.join(authPath, 'creds.json');
-                    const rf = fs.readFileSync(credsPath);
-
+                    // වර්සෙල් ෆන්ක්ෂන් එක අවසන් වීමට පෙර උපරිම වේගයෙන් වැඩේ ඉවර කරන්න
+                    await delay(5000); 
+                    const credsFile = path.join(authPath, 'creds.json');
+                    
                     try {
-                        const { upload } = require('./mega');
-                        const mega_url = await upload(fs.createReadStream(credsPath), `${sock.user.id}.json`);
-                        const string_session = mega_url.replace('https://mega.nz/file/', '');
-                        let md = "dark~" + string_session;
+                        if (fs.existsSync(credsFile)) {
+                            const mega_url = await upload(fs.createReadStream(credsFile), `${sock.user.id}.json`);
+                            const string_session = mega_url.replace('https://mega.nz/file/', '');
+                            let md = "dark~" + string_session;
 
-                        await sock.sendMessage(sock.user.id, { text: md });
-                        
-                        let desc = `*Hey there, DARK-KNIGHT-XMD user!* 👋🏻\n\nSession successfully created!\n\n🔐 *Session ID:* Sent above`;
-                        
-                        await sock.sendMessage(sock.user.id, { text: desc });
-
-                    } catch (uploadError) {
-                        console.error("Upload Error:", uploadError);
+                            await sock.sendMessage(sock.user.id, { text: md });
+                            
+                            let desc = `*Hey there, 𝙳𝙰𝚁𝙺-𝙺𝙽𝙸𝙶𝙷𝚃-𝚇𝙼𝙳 user!* 👋🏻\n\nSession successfully created!\n\n🔐 *Session ID:* Sent above`;
+                            await sock.sendMessage(sock.user.id, { text: desc });
+                        }
+                    } catch (e) {
+                        console.log("Upload Error: ", e);
                     }
 
-                    // වැඩේ ඉවර වුනාම clean up කරලා socket එක වහන්න
                     await delay(2000);
                     sock.ws.close();
                     removeFile(authPath);
                 }
 
                 if (connection === "close") {
-                    // Vercel වලදී connection එක close වුනාම නැවත මුල සිට පටන් ගැනීම සීමිතයි
-                    removeFile(authPath);
+                    let reason = lastDisconnect?.error?.output?.statusCode;
+                    if (reason !== 401) {
+                        // වැරදුනොත් නැවත උත්සාහ කරන්න Serverless වලදී අපහසුයි
+                        removeFile(authPath);
+                    }
                 }
             });
 
         } catch (err) {
-            console.error("Service Error:", err);
-            removeFile(authPath);
-            if (!res.headersSent) {
-                res.status(500).send({ code: "❗ Service Error" });
-            }
+            console.error(err);
+            if (!res.headersSent) res.status(500).send({ error: "Service Error" });
+            removeFile(path.join(TEMP_DIR, id));
         }
     }
 
-    await DARK_KNIGHT_XMD_PAIR_CODE();
+    await startPairing();
 });
 
 module.exports = router;
-
-
 
 /*const { makeid } = require('./gen-id');
 const express = require('express');
